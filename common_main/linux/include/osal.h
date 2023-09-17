@@ -357,6 +357,7 @@ INT32 osal_unsleepable_lock_init(P_OSAL_UNSLEEPABLE_LOCK);
 #endif
 INT32 osal_lock_unsleepable_lock(P_OSAL_UNSLEEPABLE_LOCK);
 INT32 osal_unlock_unsleepable_lock(P_OSAL_UNSLEEPABLE_LOCK);
+INT32 osal_trylock_unsleepable_lock(P_OSAL_UNSLEEPABLE_LOCK);
 INT32 osal_unsleepable_lock_deinit(P_OSAL_UNSLEEPABLE_LOCK);
 
 #if defined(CONFIG_PROVE_LOCKING)
@@ -403,6 +404,7 @@ INT32 osal_test_and_clear_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData);
 INT32 osal_test_and_set_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData);
 
 INT32 osal_gettimeofday(PINT32 sec, PINT32 usec);
+void osal_do_gettimeofday(struct timeval *tv);
 INT32 osal_printtimeofday(const PUINT8 prefix);
 VOID osal_get_local_time(PUINT64 sec, PULONG nsec);
 UINT64 osal_elapsed_us(UINT64 ts, ULONG usec);

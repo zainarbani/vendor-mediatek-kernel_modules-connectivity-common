@@ -1,14 +1,34 @@
+ifeq ($(MTK_PLATFORM),)
+ifneq ($(MTK_PLATFORM_WMT),)
+MTK_PLATFORM := $(shell echo $(MTK_PLATFORM_WMT) | tr A-Z a-z)
+endif
+endif
+
+ifeq ($(MTK_PLATFORM),)
+ifneq ($(CONFIG_MTK_PLATFORM),)
 MTK_PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
+endif
+endif
+
+CONNSYS_PLATFORM := $(TARGET_BOARD_PLATFORM_WMT)
+PRIORITY_TABLE_MTK_PLATFORM := mt6735
+
+ifeq ($(CONNSYS_PLATFORM),)
+CONNSYS_PLATFORM := $(MTK_PLATFORM)
+else
+ifneq ($(filter $(PRIORITY_TABLE_MTK_PLATFORM), $(MTK_PLATFORM)),)
+CONNSYS_PLATFORM := $(MTK_PLATFORM)
+endif
+endif
+
 ###############################################################################
 # Necessary Check
 
-ifeq ($(AUTOCONF_H),)
-    $(error AUTOCONF_H is not defined)
-endif
-
 ifneq ($(CONFIG_MTK_COMBO),)
 
-ccflags-y += -imacros $(AUTOCONF_H)
+ifneq ($(KERNEL_OUT),)
+    ccflags-y += -imacros $(KERNEL_OUT)/include/generated/autoconf.h
+endif
 
 ifeq ($(CONFIG_MTK_COMBO_CHIP),)
     $(error CONFIG_MTK_COMBO_CHIP not defined)
@@ -43,8 +63,13 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/clkbuf_v1
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/clkbuf_v1/$(MTK_PLATFORM)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/btif/common/inc
+ifeq ($(strip $(MTK_PLATFORM)), mt6735)
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/eccci1
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/eccci1/$(MTK_PLATFORM)
+else
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/eccci
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/eccci/$(MTK_PLATFORM)
+endif
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/eemcs
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/conn_md/include
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/include/mach
@@ -201,12 +226,8 @@ endif
 # Customer eng/userdebug load: Support
 # Customer user load: Not support
 
-ifeq ($(wildcard vendor/mediatek/proprietary/external/aee_config_internal/init.aee.mtk.system.rc),)
+ifneq ($(TARGET_BUILD_VARIANT),user)
 	ccflags-y += -D CFG_WMT_STEP
-else
-	ifneq ($(TARGET_BUILD_VARIANT),user)
-		ccflags-y += -D CFG_WMT_STEP
-	endif
 endif
 
 ifeq ($(findstring evb, $(MTK_PROJECT)), evb)
@@ -214,7 +235,7 @@ ccflags-y += -D CFG_WMT_EVB
 endif
 
 ifneq ($(filter "CONSYS_%",$(CONFIG_MTK_COMBO_CHIP)),)
-$(MODULE_NAME)-objs += common_main/platform/$(MTK_PLATFORM).o
+$(MODULE_NAME)-objs += common_main/platform/$(CONNSYS_PLATFORM).o
 endif
 
 #$(MODULE_NAME)-objs += common_main/platform/wmt_plat_stub.o
@@ -249,6 +270,7 @@ $(MODULE_NAME)-objs += common_main/linux/wmt_idc.o
 $(MODULE_NAME)-objs += common_main/linux/stp_uart.o
 $(MODULE_NAME)-objs += common_main/linux/wmt_dbg.o
 $(MODULE_NAME)-objs += common_main/linux/stp_dbg.o
+$(MODULE_NAME)-objs += common_main/linux/wmt_user_proc.o
 
 $(MODULE_NAME)-objs += common_main/linux/wmt_proc_dbg.o
 $(MODULE_NAME)-objs += common_main/linux/wmt_alarm.o

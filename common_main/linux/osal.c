@@ -264,8 +264,10 @@ INT32 osal_dbg_assert_aee(const PINT8 module, const PINT8 detail_description, ..
 		/* There exists Format-String vulnerability. For safety, we must use the %s
 		 * format parameter to read data.
 		 */
+#if IS_ENABLED(CONFIG_MTK_AEE_AED)
 		aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_WCN_ISSUE_INFO, module,
 			detail_description, "%s", tempString);
+#endif
 #endif
 	}
 	va_end(args);
@@ -348,7 +350,9 @@ UINT16 osal_crc16(const PUINT8 buffer, const UINT32 length)
 
 VOID osal_dump_thread_state(const PUINT8 name)
 {
-	return connectivity_export_dump_thread_state(name);
+#if defined(KERNEL_dump_thread_state)
+	return KERNEL_dump_thread_state(name);
+#endif
 }
 
 VOID osal_thread_show_stack(P_OSAL_THREAD pThread)
@@ -745,6 +749,10 @@ INT32 osal_bit_op_unlock(P_OSAL_UNSLEEPABLE_LOCK pLock)
 #endif
 INT32 osal_clear_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 {
+	if (bitOffset >= BITS_PER_LONG) {
+		pr_info("bitOffset(%d) is out of range.\n", bitOffset);
+		return -1;
+	}
 	osal_bit_op_lock(&(pData->opLock));
 	clear_bit(bitOffset, &pData->data);
 	osal_bit_op_unlock(&(pData->opLock));
@@ -753,6 +761,10 @@ INT32 osal_clear_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 
 INT32 osal_set_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 {
+	if (bitOffset >= BITS_PER_LONG) {
+		pr_info("bitOffset(%d) is out of range.\n", bitOffset);
+		return -1;
+	}
 	osal_bit_op_lock(&(pData->opLock));
 	set_bit(bitOffset, &pData->data);
 	osal_bit_op_unlock(&(pData->opLock));
@@ -763,6 +775,10 @@ INT32 osal_test_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 {
 	UINT32 iRet = 0;
 
+	if (bitOffset >= BITS_PER_LONG) {
+		pr_info("bitOffset(%d) is out of range.\n", bitOffset);
+		return -1;
+	}
 	osal_bit_op_lock(&(pData->opLock));
 	iRet = test_bit(bitOffset, &pData->data);
 	osal_bit_op_unlock(&(pData->opLock));
@@ -773,6 +789,10 @@ INT32 osal_test_and_clear_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 {
 	UINT32 iRet = 0;
 
+	if (bitOffset >= BITS_PER_LONG) {
+		pr_info("bitOffset(%d) is out of range.\n", bitOffset);
+		return -1;
+	}
 	osal_bit_op_lock(&(pData->opLock));
 	iRet = test_and_clear_bit(bitOffset, &pData->data);
 	osal_bit_op_unlock(&(pData->opLock));
@@ -784,6 +804,10 @@ INT32 osal_test_and_set_bit(UINT32 bitOffset, P_OSAL_BIT_OP_VAR pData)
 {
 	UINT32 iRet = 0;
 
+	if (bitOffset >= BITS_PER_LONG) {
+		pr_info("bitOffset(%d) is out of range.\n", bitOffset);
+		return -1;
+	}
 	osal_bit_op_lock(&(pData->opLock));
 	iRet = test_and_set_bit(bitOffset, &pData->data);
 	osal_bit_op_unlock(&(pData->opLock));
@@ -1307,6 +1331,11 @@ INT32 osal_unlock_unsleepable_lock(P_OSAL_UNSLEEPABLE_LOCK pUSL)
 	return 0;
 }
 
+INT32 osal_trylock_unsleepable_lock(P_OSAL_UNSLEEPABLE_LOCK pUSL)
+{
+	return spin_trylock_irqsave(&(pUSL->lock), pUSL->flag);
+}
+
 INT32 osal_unsleepable_lock_deinit(P_OSAL_UNSLEEPABLE_LOCK pUSL)
 {
 	return 0;
@@ -1375,7 +1404,7 @@ INT32 osal_gettimeofday(PINT32 sec, PINT32 usec)
 	INT32 ret = 0;
 	struct timeval now;
 
-	do_gettimeofday(&now);
+	osal_do_gettimeofday(&now);
 
 	if (sec != NULL)
 		*sec = now.tv_sec;
@@ -1388,6 +1417,15 @@ INT32 osal_gettimeofday(PINT32 sec, PINT32 usec)
 		ret = -1;
 
 	return ret;
+}
+
+void osal_do_gettimeofday(struct timeval *tv)
+{
+	struct timespec64 now;
+
+	ktime_get_real_ts64(&now);
+	tv->tv_sec = now.tv_sec;
+	tv->tv_usec = now.tv_nsec / NSEC_PER_USEC;
 }
 
 INT32 osal_printtimeofday(const PUINT8 prefix)
@@ -1426,7 +1464,7 @@ VOID osal_buffer_dump(const PUINT8 buf, const PUINT8 title, const UINT32 len, co
 	UINT32 dump_len;
 	char str[DBG_LOG_STR_SIZE] = {""};
 	INT32 strlen = 0;
-	char *p;
+	char *p = NULL;
 
 	pr_info("[%s] len=%d, limit=%d, start dump\n", title, len, limit);
 
@@ -1455,12 +1493,14 @@ VOID osal_buffer_dump_data(const PUINT32 buf, const PUINT8 title, const UINT32 l
 	UINT32 dump_len;
 	char str[DBG_LOG_STR_SIZE] = {""};
 	INT32 strlen = 0;
-	char *p;
+	char *p = NULL;
+	INT32 count = 0;
 
 	dump_len = ((limit != 0) && (len > limit)) ? limit : len;
 	p = str;
 	for (k = 0; k < dump_len; k++) {
-		if (((k+1) % 8 != 0) && (k < (dump_len - 1))) {
+		count++;
+		if (count % 8 != 0) {
 			strlen = osal_sprintf(p, "0x%08x,", buf[k]);
 			p += strlen;
 		} else {
@@ -1472,11 +1512,11 @@ VOID osal_buffer_dump_data(const PUINT32 buf, const PUINT8 title, const UINT32 l
 			p = str;
 		}
 	}
-	if (k % 8 != 0) {
+	if (count % 8 != 0) {
 		if (flag)
-			osal_ftrace_print("%s%s", title, str);
+			osal_ftrace_print("%s%s\n", title, str);
 		else
-			pr_info("%s%s", title, str);
+			pr_info("%s%s\n", title, str);
 	}
 }
 
@@ -1651,7 +1691,7 @@ static VOID osal_op_history_print_work(struct work_struct *work)
 	struct ring *ring_buffer = &log_history->dump_ring_buffer;
 	struct ring_segment seg;
 	struct osal_op_history_entry *queue = ring_buffer->base;
-	struct osal_op_history_entry *entry;
+	struct osal_op_history_entry *entry = NULL;
 	INT32 index = 0;
 
 	if (queue == NULL) {
@@ -1702,8 +1742,8 @@ VOID osal_op_history_init(struct osal_op_history *log_history, INT32 queue_size)
 
 VOID osal_op_history_print(struct osal_op_history *log_history, PINT8 name)
 {
-	struct osal_op_history_entry *queue;
-	struct ring *ring_buffer, *dump_ring_buffer;
+	struct osal_op_history_entry *queue = NULL;
+	struct ring *ring_buffer = NULL, *dump_ring_buffer = NULL;
 	INT32 queue_size;
 	ULONG flags;
 	struct work_struct *work = &log_history->dump_work;
@@ -1720,7 +1760,7 @@ VOID osal_op_history_print(struct osal_op_history *log_history, PINT8 name)
 			 * RING_SIZE(ring_buffer);
 
 	/* Allocate memory before getting lock to save time of holding lock */
-	queue = kmalloc(queue_size, GFP_KERNEL);
+	queue = kmalloc(queue_size, GFP_ATOMIC);
 	if (queue == NULL) {
 		spin_unlock_irqrestore(lock, flags);
 		return;

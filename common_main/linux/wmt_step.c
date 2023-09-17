@@ -239,6 +239,10 @@ static const char * const STEP_TRIGGER_TIME_NAME[] = {
 		"[TP 28] After send calibration restore command",
 	[STEP_TRIGGER_POINT_WHEN_CLOCK_FAIL] =
 		"[TP 29] When clock fail",
+	[STEP_TRIGGER_POINT_BEFORE_GPSL5_FUNC_ON] =
+		"[TP 30] Before GPSL5 function on",
+	[STEP_TRIGGER_POINT_BEFORE_GPSL5_FUNC_OFF] =
+		"[TP 31] Before GPSL5 function off",
 };
 
 static const int wmt_step_func_ctrl_id[WMTDRV_TYPE_MAX][2] = {
@@ -257,6 +261,10 @@ static const int wmt_step_func_ctrl_id[WMTDRV_TYPE_MAX][2] = {
 	[WMTDRV_TYPE_WIFI] = {
 		STEP_TRIGGER_POINT_BEFORE_WIFI_FUNC_OFF,
 		STEP_TRIGGER_POINT_BEFORE_WIFI_FUNC_ON
+	},
+	[WMTDRV_TYPE_GPSL5] = {
+		STEP_TRIGGER_POINT_BEFORE_GPSL5_FUNC_OFF,
+		STEP_TRIGGER_POINT_BEFORE_GPSL5_FUNC_ON
 	},
 };
 
@@ -285,6 +293,7 @@ static const STEP_OPERATOR_RESULT wmt_step_operator_result_map[] = {
 /*******************************************************************************
  *                      I N T E R N A L   F U N C T I O N S
 ********************************************************************************/
+#ifdef CFG_WMT_STEP
 static void wmt_step_init_list(void)
 {
 	unsigned int i = 0;
@@ -292,6 +301,7 @@ static void wmt_step_init_list(void)
 	for (i = 0; i < STEP_TRIGGER_POINT_MAX; i++)
 		INIT_LIST_HEAD(&(g_step_env.actions[i].list));
 }
+#endif
 
 static unsigned char __iomem *wmt_step_get_emi_base_address(void)
 {
@@ -1930,6 +1940,7 @@ static int _wmt_step_do_emi_action(struct step_emi_info *p_emi_info, STEP_DO_EXT
 static bool wmt_step_reg_readable(struct step_reigster_info *p_reg_info)
 {
 	phys_addr_t phy_addr;
+	SIZE_T vir_addr;
 
 	if (p_reg_info->address_type == STEP_REGISTER_PHYSICAL_ADDRESS) {
 		phy_addr = p_reg_info->address + p_reg_info->offset;
@@ -1944,8 +1955,10 @@ static bool wmt_step_reg_readable(struct step_reigster_info *p_reg_info)
 		    p_reg_info->address_type == STEP_REGISTER_CFG_ON_BASE ||
 		    p_reg_info->address_type == STEP_REGISTER_HIF_ON_BASE ||
 		    p_reg_info->address_type == STEP_MCU_TOP_MISC_ON_BASE ||
-		    p_reg_info->address_type == STEP_CIRQ_BASE)
-			return wmt_lib_reg_readable();
+		    p_reg_info->address_type == STEP_CIRQ_BASE) {
+			vir_addr = p_reg_info->address + p_reg_info->offset;
+			return wmt_lib_reg_readable_by_addr(vir_addr);
+		}
 	}
 
 	return 1;
@@ -1961,7 +1974,15 @@ int _wmt_step_do_register_action(struct step_reigster_info *p_reg_info, STEP_DO_
 			WMT_ERR_FUNC("STEP failed: Wake up, continue to show register\n");
 	}
 
+	if (wmt_lib_power_lock_trylock() == 0) {
+		WMT_INFO_FUNC("STEP failed: can't get lock\n");
+		if (is_wakeup == 1)
+			ENABLE_PSM_MONITOR();
+		return -1;
+	}
+
 	if (!wmt_step_reg_readable(p_reg_info)) {
+		wmt_lib_power_lock_release();
 		WMT_ERR_FUNC("STEP failed: register cant read (No clock)\n");
 		if (is_wakeup == 1)
 			ENABLE_PSM_MONITOR();
@@ -1973,6 +1994,7 @@ int _wmt_step_do_register_action(struct step_reigster_info *p_reg_info, STEP_DO_
 		ret = wmt_step_do_write_register_action(p_reg_info, func_do_extra);
 	else
 		ret = wmt_step_do_read_register_action(p_reg_info, func_do_extra);
+	wmt_lib_power_lock_release();
 
 	if (is_wakeup == 1)
 		ENABLE_PSM_MONITOR();
@@ -2351,6 +2373,7 @@ void wmt_step_print_version(void)
 ********************************************************************************/
 void wmt_step_init(void)
 {
+#ifdef CFG_WMT_STEP
 	wmt_step_setup();
 	wmt_step_init_list();
 	if (wmt_step_read_file(STEP_CONFIG_NAME) == 0) {
@@ -2359,6 +2382,7 @@ void wmt_step_init(void)
 		g_step_env.is_enable = 1;
 		up_write(&g_step_env.init_rwsem);
 	}
+#endif
 }
 
 void wmt_step_deinit(void)

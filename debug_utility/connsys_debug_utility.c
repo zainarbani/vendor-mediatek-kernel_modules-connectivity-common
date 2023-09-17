@@ -28,6 +28,7 @@
 #include <linux/alarmtimer.h>
 #include <linux/suspend.h>
 #include <linux/version.h>
+#include <linux/rtc.h>
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -106,7 +107,7 @@ static size_t cache_size_table[CONNLOG_TYPE_END];
 *                  F U N C T I O N   D E C L A R A T I O N S
 ********************************************************************************
 */
-static int connlog_eirq_init(unsigned int irq_id, unsigned int irq_flag);
+static int connlog_eirq_init(const struct connlog_irq_config *irq_config);
 static void connlog_eirq_deinit(void);
 static int connlog_emi_init(phys_addr_t emi_base, const struct connlog_emi_config *emi_config);
 static void connlog_emi_deinit(void);
@@ -761,6 +762,10 @@ static void connlog_log_data_handler(struct work_struct *work)
 static irqreturn_t connlog_eirq_isr(int irq, void *arg)
 {
 	connlog_do_schedule_work(true);
+
+	if (gDev.irq_callback)
+		(*gDev.irq_callback)();
+
 	return IRQ_HANDLED;
 }
 
@@ -775,21 +780,36 @@ static irqreturn_t connlog_eirq_isr(int irq, void *arg)
 * RETURNS
 *  int    0=success, others=error
 *****************************************************************************/
-static int connlog_eirq_init(unsigned int irq_id, unsigned int irq_flag)
+static int connlog_eirq_init(const struct connlog_irq_config *irq_config)
 {
 	int iret = 0;
 
+	if (irq_config == NULL) {
+		pr_info("irq_config is NULL\n");
+		return -1;
+	}
+
 	if (gDev.conn2ApIrqId == 0)
-		gDev.conn2ApIrqId = irq_id;
+		gDev.conn2ApIrqId = irq_config->irq_num;
 	else {
 		pr_warn("IRQ has been initialized\n");
 		return -1;
 	}
-	pr_info("EINT CONN_LOG_IRQ(%d, %d)\n", irq_id, irq_flag);
 
-	iret = request_irq(gDev.conn2ApIrqId, connlog_eirq_isr, irq_flag, "CONN_LOG_IRQ", NULL);
-	if (iret)
+	gDev.irq_callback = irq_config->irq_callback;
+
+	pr_info("EINT CONN_LOG_IRQ(%d, %d)\n", irq_config->irq_num, irq_config->irq_flag);
+
+	iret = request_irq(gDev.conn2ApIrqId, connlog_eirq_isr, irq_config->irq_flag, "CONN_LOG_IRQ", NULL);
+	if (iret) {
 		pr_err("EINT IRQ(%d) NOT AVAILABLE!!\n", gDev.conn2ApIrqId);
+	} else {
+		iret = enable_irq_wake(gDev.conn2ApIrqId);
+		if (iret)
+			pr_err("enable irq wake fail,irq_no(%d),iret(%d)\n", gDev.conn2ApIrqId, iret);
+		iret = 0;
+	}
+
 	return iret;
 }
 
@@ -1029,7 +1049,7 @@ int connsys_dedicated_log_path_apsoc_init(
 	gDev.workTimer.function = work_timer_handler;
 	spin_lock_init(&gDev.irq_lock);
 	INIT_WORK(&gDev.logDataWorker, connlog_log_data_handler);
-	if (connlog_eirq_init(irq_config->irq_num, irq_config->irq_flag)) {
+	if (connlog_eirq_init(irq_config)) {
 		pr_err("EIRQ init failed\n");
 		return -3;
 	}
@@ -1259,11 +1279,11 @@ EXPORT_SYMBOL(connsys_log_get_emi_log_base_vir_addr);
 void connsys_dedicated_log_get_utc_time(unsigned int *second,
 	unsigned int *usecond)
 {
-	struct timeval time;
+	struct timespec64 time;
 
-	do_gettimeofday(&time);
+	ktime_get_real_ts64(&time);
 	*second = (unsigned int)time.tv_sec; /* UTC time second unit */
-	*usecond = (unsigned int)time.tv_usec; /* UTC time microsecond unit */
+	*usecond = (unsigned int)(time.tv_nsec / NSEC_PER_USEC); /* UTC time microsecond unit */
 }
 EXPORT_SYMBOL(connsys_dedicated_log_get_utc_time);
 

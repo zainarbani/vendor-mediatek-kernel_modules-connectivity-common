@@ -93,6 +93,9 @@ typedef enum _ENUM_WMTRSTRET_TYPE_T {
 /*1000->WMT_LIB_RX_TIMEOUT + 1000, logical judgement */
 #define MAX_EACH_WMT_CMD (WMT_LIB_RX_TIMEOUT + 1000)
 
+/* For WMT OP who will have trouble if timeout really happens */
+#define MAX_WMT_OP_TIMEOUT (30000)
+
 #define MAX_GPIO_CTRL_TIME (2000)	/* [FixMe][GeorgeKuo] a temp value */
 
 #define UTC_SYNC_TIME (60 * 60 * 1000)
@@ -219,6 +222,7 @@ typedef struct _DEV_WMT_ {
 	OSAL_SLEEPABLE_LOCK wlan_lock;
 	OSAL_SLEEPABLE_LOCK assert_lock;
 	OSAL_SLEEPABLE_LOCK mpu_lock;
+	OSAL_SLEEPABLE_LOCK power_lock;
 	/* WMTd thread information */
 	/* struct task_struct *pWmtd;   *//* main thread (wmtd) handle */
 	OSAL_THREAD thread;
@@ -417,6 +421,9 @@ extern INT32 wmt_lib_assert_lock_trylock(VOID);
 extern INT32 wmt_lib_assert_lock_aquire(VOID);
 extern VOID wmt_lib_mpu_lock_release(VOID);
 extern INT32 wmt_lib_mpu_lock_aquire(VOID);
+extern VOID wmt_lib_power_lock_release(VOID);
+extern INT32 wmt_lib_power_lock_trylock(VOID);
+extern INT32 wmt_lib_power_lock_aquire(VOID);
 extern INT32 wmt_lib_set_stp_wmt_last_close(UINT32 value);
 
 extern VOID wmt_lib_set_patch_num(UINT32 num);
@@ -476,6 +483,8 @@ INT32 wmt_lib_dmp_consys_state(P_CONSYS_STATE_DMP_INFO dmp_info,
 				UINT32 cpupcr_times, UINT32 slp_ms);
 
 extern INT32 wmt_lib_reg_readable(VOID);
+extern INT32 wmt_lib_reg_readable_by_addr(SIZE_T addr);
+extern INT32 wmt_lib_utc_time_sync(VOID);
 /*******************************************************************************
 *                              F U N C T I O N S
 ********************************************************************************

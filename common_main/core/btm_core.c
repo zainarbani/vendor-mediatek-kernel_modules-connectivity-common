@@ -67,21 +67,21 @@ MTKSTP_BTM_T stp_btm_i;
 MTKSTP_BTM_T *stp_btm = &stp_btm_i;
 
 const PINT8 g_btm_op_name[] = {
-	"STP_OPID_BTM_RETRY",
-	"STP_OPID_BTM_RST",
-	"STP_OPID_BTM_DBG_DUMP",
-	"STP_OPID_BTM_DUMP_TIMEOUT",
-	"STP_OPID_BTM_POLL_CPUPCR",
-	"STP_OPID_BTM_PAGED_DUMP",
-	"STP_OPID_BTM_FULL_DUMP",
-	"STP_OPID_BTM_PAGED_TRACE",
-	"STP_OPID_BTM_FORCE_FW_ASSERT",
+	[0x0] = "STP_OPID_BTM_RETRY",
+	[0x1] = "STP_OPID_BTM_RST",
+	[0x2] = "STP_OPID_BTM_DBG_DUMP",
+	[0x3] = "STP_OPID_BTM_DUMP_TIMEOUT",
+	[0x4] = "STP_OPID_BTM_POLL_CPUPCR",
+	[0x5] = "STP_OPID_BTM_PAGED_DUMP",
+	[0x6] = "STP_OPID_BTM_FULL_DUMP",
+	[0x7] = "STP_OPID_BTM_PAGED_TRACE",
+	[0x8] = "STP_OPID_BTM_FORCE_FW_ASSERT",
 #if CFG_WMT_LTE_COEX_HANDLING
-	"STP_OPID_BTM_WMT_LTE_COEX",
+	[0x9] = "STP_OPID_BTM_WMT_LTE_COEX",
 #endif
-	"STP_OPID_BTM_ASSERT_TIMEOUT",
-	"STP_OPID_BTM_EMI_DUMP_END",
-	"STP_OPID_BTM_EXIT"
+	[0xa] = "STP_OPID_BTM_ASSERT_TIMEOUT",
+	[0xb] = "STP_OPID_BTM_EMI_DUMP_END",
+	[0xc] = "STP_OPID_BTM_EXIT"
 };
 
 static VOID stp_btm_trigger_assert_timeout_handler(timer_handler_arg arg)
@@ -408,15 +408,14 @@ static INT32 _stp_btm_proc(PVOID pvData)
 
 		id = osal_op_get_id(pOp);
 
-		STP_BTM_PR_DBG("======> lxop_get_opid = %d, %s, remaining count = *%d*\n",
-				 id, (id >= osal_array_size(g_btm_op_name)) ? ("???") : (g_btm_op_name[id]),
-				 RB_COUNT(&stp_btm->rActiveOpQ));
-
-		if (id >= STP_OPID_BTM_NUM) {
+		if ((id >= STP_OPID_BTM_NUM) || (id < 0)) {
 			STP_BTM_PR_WARN("abnormal opid id: 0x%x\n", id);
 			result = -1;
 			goto handler_done;
 		}
+
+		STP_BTM_PR_DBG("======> lxop_get_opid = %d, %s, remaining count = *%d*\n", id,
+				g_btm_op_name[id], RB_COUNT(&stp_btm->rActiveOpQ));
 
 		osal_lock_unsleepable_lock(&(stp_btm->wq_spinlock));
 		stp_btm_set_current_op(stp_btm, pOp);
@@ -426,12 +425,12 @@ static INT32 _stp_btm_proc(PVOID pvData)
 		stp_btm_set_current_op(stp_btm, NULL);
 		osal_unlock_unsleepable_lock(&(stp_btm->wq_spinlock));
 
-handler_done:
-
 		if (result) {
 			STP_BTM_PR_WARN("opid id(0x%x)(%s) error(%d)\n", id,
-				(id >= osal_array_size(g_btm_op_name)) ? ("???") : (g_btm_op_name[id]), result);
+					g_btm_op_name[id], result);
 		}
+
+handler_done:
 
 		if (atomic_dec_and_test(&pOp->ref_count)) {
 			_stp_btm_put_op(stp_btm, &stp_btm->rFreeOpQ, pOp);

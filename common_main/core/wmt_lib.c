@@ -230,6 +230,21 @@ VOID wmt_lib_mpu_lock_release(VOID)
 	osal_unlock_sleepable_lock(&gDevWmt.mpu_lock);
 }
 
+INT32 wmt_lib_power_lock_aquire(VOID)
+{
+	return osal_lock_sleepable_lock(&gDevWmt.power_lock);
+}
+
+VOID wmt_lib_power_lock_release(VOID)
+{
+	osal_unlock_sleepable_lock(&gDevWmt.power_lock);
+}
+
+INT32 wmt_lib_power_lock_trylock(VOID)
+{
+	return osal_trylock_sleepable_lock(&gDevWmt.power_lock);
+}
+
 INT32 DISABLE_PSM_MONITOR(VOID)
 {
 	INT32 ret = 0;
@@ -345,6 +360,7 @@ INT32 wmt_lib_init(VOID)
 	osal_sleepable_lock_init(&pDevWmt->wlan_lock);
 	osal_sleepable_lock_init(&pDevWmt->assert_lock);
 	osal_sleepable_lock_init(&pDevWmt->mpu_lock);
+	osal_sleepable_lock_init(&pDevWmt->power_lock);
 	osal_sleepable_lock_init(&pDevWmt->rActiveOpQ.sLock);
 	osal_sleepable_lock_init(&pDevWmt->rWorkerOpQ.sLock);
 	osal_sleepable_lock_init(&pDevWmt->rFreeOpQ.sLock);
@@ -514,6 +530,7 @@ INT32 wmt_lib_deinit(VOID)
 	osal_sleepable_lock_deinit(&pDevWmt->rFreeOpQ.sLock);
 	osal_sleepable_lock_deinit(&pDevWmt->rActiveOpQ.sLock);
 	osal_sleepable_lock_deinit(&pDevWmt->rWorkerOpQ.sLock);
+	osal_sleepable_lock_deinit(&pDevWmt->power_lock);
 	osal_sleepable_lock_deinit(&pDevWmt->mpu_lock);
 	osal_sleepable_lock_deinit(&pDevWmt->idc_lock);
 	osal_sleepable_lock_deinit(&pDevWmt->wlan_lock);
@@ -1074,7 +1091,7 @@ static INT32 wmt_lib_is_bt_able_to_reset(VOID)
 		ULONG local_time;
 		struct rtc_time tm;
 
-		do_gettimeofday(&time);
+		osal_do_gettimeofday(&time);
 		local_time = (ULONG)(time.tv_sec - (sys_tz.tz_minuteswest * 60));
 		rtc_time_to_tm(local_time, &tm);
 		if (tm.tm_hour == 2)
@@ -1237,7 +1254,8 @@ static INT32 wmtd_thread(void *pvData)
 			/* when whole chip reset, only HW RST and SW RST cmd can execute */
 			if ((pOp->op.opId == WMT_OPID_HW_RST)
 			    || (pOp->op.opId == WMT_OPID_SW_RST)
-			    || (pOp->op.opId == WMT_OPID_GPIO_STATE)) {
+			    || (pOp->op.opId == WMT_OPID_GPIO_STATE)
+			    || (pOp->op.opId == WMT_OPID_GET_CONSYS_STATE)) {
 				iResult = wmt_core_opid(&pOp->op);
 			} else {
 				iResult = -2;
@@ -1778,6 +1796,8 @@ UINT32 wmt_lib_get_icinfo(ENUM_WMT_CHIPINFO_TYPE_T index)
 		return gDevWmt.fw_ver;
 	else if (index == WMTCHIN_IPVER)
 		return gDevWmt.ip_ver;
+	else if (index == WMTCHIN_ADIE)
+		return mtk_wcn_consys_get_adie_chipid();
 
 	return 0;
 
@@ -1909,7 +1929,7 @@ INT32 wmt_lib_reg_rw(UINT32 isWrite, UINT32 offset, PUINT32 pvalue, UINT32 mask)
 	}
 
 	pSignal = &pOp->signal;
-	pSignal->timeoutValue = MAX_EACH_WMT_CMD;
+	pSignal->timeoutValue = MAX_WMT_OP_TIMEOUT;
 	value = *pvalue;
 	WMT_DBG_FUNC("OPID_REG_RW isWrite(%u) offset(0x%x) value(0x%x) mask(0x%x)\n\n",
 		     isWrite, offset, *pvalue, mask);
@@ -1960,7 +1980,7 @@ INT32 wmt_lib_efuse_rw(UINT32 isWrite, UINT32 offset, PUINT32 pvalue, UINT32 mas
 	}
 
 	pSignal = &pOp->signal;
-	pSignal->timeoutValue = MAX_EACH_WMT_CMD;
+	pSignal->timeoutValue = MAX_WMT_OP_TIMEOUT;
 	value = *pvalue;
 	WMT_DBG_FUNC("OPID_EFUSE_RW isWrite(%u) offset(0x%x) value(0x%x) mask(0x%x)\n\n",
 		     isWrite, offset, *pvalue, mask);
@@ -2813,7 +2833,7 @@ INT32 wmt_lib_wifi_fem_cfg_report(PVOID pvInfoBuf)
 {
 	INT32 iRet = 0;
 	ULONG addr = 0;
-	WMT_GEN_CONF *pWmtGenConf;
+	WMT_GEN_CONF *pWmtGenConf = NULL;
 
 	/* sanity check */
 	ASSERT(pvInfoBuf);
@@ -3021,7 +3041,7 @@ INT32 wmt_lib_gps_mcu_ctrl(PUINT8 p_tx_data_buf, UINT32 tx_data_len, PUINT8 p_rx
 	}
 
 	pSignal = &pOp->signal;
-	pSignal->timeoutValue = MAX_EACH_WMT_CMD;
+	pSignal->timeoutValue = MAX_WMT_OP_TIMEOUT;
 	pOp->op.opId = WMT_OPID_GPS_MCU_CTRL;
 	pOp->op.au4OpData[0] = (SIZE_T)p_tx_data_buf;
 	pOp->op.au4OpData[1] = tx_data_len;
@@ -3348,11 +3368,15 @@ err:
 
 INT32 wmt_lib_reg_readable(VOID)
 {
-	if (wmt_lib_get_drv_status(WMTDRV_TYPE_WMT) != DRV_STS_FUNC_ON
+	return wmt_lib_reg_readable_by_addr(0);
+}
+
+INT32 wmt_lib_reg_readable_by_addr(SIZE_T addr)
+{
+	if (wmt_lib_get_drv_status(WMTDRV_TYPE_WMT) == DRV_STS_POWER_OFF
 			|| osal_test_bit(WMT_STAT_PWR, &gDevWmt.state) == 0) {
 		return MTK_WCN_BOOL_FALSE;
 	}
-	return mtk_consys_check_reg_readable();
+	return mtk_consys_check_reg_readable_by_addr(addr);
 }
-
 

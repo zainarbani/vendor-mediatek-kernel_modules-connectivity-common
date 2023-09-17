@@ -500,7 +500,7 @@ INT32 stp_dbg_soc_core_dump(INT32 dump_sink)
 PUINT8 stp_dbg_soc_id_to_task(UINT32 id)
 {
 	P_WMT_PATCH_INFO p_patch_info;
-	PUINT8 patch_name;
+	PUINT8 patch_name = NULL;
 	UINT32 temp_id;
 
 	if (id >= STP_DBG_TASK_ID_MAX) {
@@ -509,11 +509,13 @@ PUINT8 stp_dbg_soc_id_to_task(UINT32 id)
 	}
 
 	p_patch_info = wmt_lib_get_patch_info();
-	patch_name = p_patch_info->patchName;
+	if (p_patch_info)
+		patch_name = p_patch_info->patchName;
 
 	if (patch_name == NULL) {
-		STP_DBG_PR_ERR("patch_name is null\n");
-		return NULL;
+		STP_DBG_PR_INFO("patch_name is null\n");
+		/* For projects without patch download */
+		return soc_task_str[id];
 	}
 
 	if (osal_strncmp(patch_name, ROM_V2_PATCH, strlen(ROM_V2_PATCH)) == 0) {
@@ -553,7 +555,8 @@ UINT32 stp_dbg_soc_read_debug_crs(ENUM_CONNSYS_DEBUG_CR cr)
 
 	if (chip_id == 0x6765 || chip_id == 0x3967 || chip_id == 0x6761
 			|| chip_id == 0x6779 || chip_id == 0x6768 || chip_id == 0x6785
-			|| chip_id == 0x6873 || chip_id == 0x8168)
+			|| chip_id == 0x6873 || chip_id == 0x8168 || chip_id == 0x6853
+			|| chip_id == 0x6833)
 		return 0;
 
 	if (conn_reg.mcu_base) {
